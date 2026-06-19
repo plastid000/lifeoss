@@ -1,0 +1,215 @@
+name: Build & Release MR Expense APK
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      # =========================
+      # Checkout
+      # =========================
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      # =========================
+      # Java Setup
+      # =========================
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: zulu
+          java-version: '17'
+
+      # =========================
+      # Flutter Setup
+      # =========================
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      # =========================
+      # Auto Update pubspec.yaml Version
+      # =========================
+      - name: Auto Increment pubspec Version
+        run: |
+          # 'v1.0.2' থেকে 'v' সরিয়ে শুধু '1.0.2' নিবে
+          APP_VERSION="${GITHUB_REF_NAME#v}"
+          
+          # গিটহাবের অটো জেনারেটেড ইউনিক রান নাম্বার (যেমন: 1, 2, 3...)
+          BUILD_NUMBER=$GITHUB_RUN_NUMBER
+          
+          # sed কমান্ড দিয়ে pubspec.yaml এর version লাইনটা রিপ্লেস করবে
+          sed -i "s/^version: .*/version: $APP_VERSION+$BUILD_NUMBER/" pubspec.yaml
+          
+          echo "✅ Version updated to: $APP_VERSION+$BUILD_NUMBER"
+
+      # =========================
+      # Install jq
+      # =========================
+      - name: Install jq
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq
+
+      # =========================
+      # Flutter Dependencies
+      # =========================
+      - name: Install Dependencies
+        run: flutter pub get
+
+      # =========================
+      # Decode Android Keystore
+      # =========================
+      - name: Decode Keystore
+        run: |
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > android/app/release-key.jks
+
+      # =========================
+      # Debug Signing Config
+      # =========================
+      - name: Debug Secrets
+        env:
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+        run: |
+          echo "KEY_ALIAS=$KEY_ALIAS"
+
+      # =========================
+      # Build Signed APK
+      # =========================
+      - name: Build APK (Release)
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+        run: |
+          flutter build apk --release
+
+      # =========================
+      # Upload GitHub Release
+      # =========================
+      - name: Upload APK to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/app/outputs/flutter-apk/app-release.apk
+          name: Release ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # =========================
+      # Google Authentication
+      # =========================
+      - name: Authenticate to Google
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: '${{ secrets.FIREBASE_CREDENTIALS }}'
+
+      - name: Setup Google Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      # =========================
+      # Firebase Remote Config
+      # =========================
+      - name: Update Firebase Remote Config
+        shell: bash
+        run: |
+          set -e
+
+          PROJECT_ID="memoiros-app"
+          VERSION="${GITHUB_REF_NAME#v}"
+
+          APK_URL="https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/app-release.apk"
+
+          echo "==============================="
+          echo "Version : $VERSION"
+          echo "APK URL : $APK_URL"
+          echo "==============================="
+
+          echo "Generating Access Token..."
+          ACCESS_TOKEN=$(gcloud auth print-access-token)
+
+          echo "Fetching current Remote Config..."
+
+          curl -s \
+            -H "Authorization: Bearer $ACCESS_TOKEN" \
+            -H "Accept-Encoding: gzip" \
+            --compressed \
+            "https://firebaseremoteconfig.googleapis.com/v1/projects/$PROJECT_ID/remoteConfig" \
+            -o config.json \
+            -D headers.txt
+
+          echo "Reading ETag..."
+
+          ETAG=$(grep -i '^etag:' headers.txt | awk '{print $2}' | tr -d '\r')
+
+          if [ -z "$ETAG" ]; then
+            echo "ERROR: Could not retrieve ETag"
+            echo "Headers:"
+            cat headers.txt
+            exit 1
+          fi
+
+          echo "ETag Found: $ETAG"
+
+          echo "Creating updated config..."
+
+          jq --arg ver "$VERSION" \
+             --arg url "$APK_URL" \
+             '
+             .parameters.latest_version = {
+               "defaultValue": {
+                 "value": $ver
+               }
+             } |
+             .parameters.apk_url = {
+               "defaultValue": {
+                 "value": $url
+               }
+             }
+             ' config.json > updated_config.json
+
+          echo "Updated Config Preview:"
+          cat updated_config.json
+
+          echo "Publishing Remote Config..."
+
+          HTTP_CODE=$(curl -s \
+            -o response.json \
+            -w "%{http_code}" \
+            -X PUT \
+            -H "Authorization: Bearer $ACCESS_TOKEN" \
+            -H "Content-Type: application/json; charset=UTF-8" \
+            -H "If-Match: $ETAG" \
+            -d @updated_config.json \
+            "https://firebaseremoteconfig.googleapis.com/v1/projects/$PROJECT_ID/remoteConfig")
+
+          echo "HTTP Status: $HTTP_CODE"
+
+          echo "Response:"
+          cat response.json
+
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "Firebase Remote Config update failed!"
+            exit 1
+          fi
+
+          echo "Remote Config updated successfully."
+
+      # =========================
+      # Workflow Finished
+      # =========================
+      - name: Success
+        run: |
+          echo "Release Complete!"
+          echo "Version: ${GITHUB_REF_NAME}"

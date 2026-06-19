@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "456972413506",
+    "project_id": "memoiros-app",
+    "storage_bucket": "memoiros-app.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:456972413506:android:806085389ca4ae7e3d5bdb",
+        "android_client_info": {
+          "package_name": "com.mrtechbd.lifeos"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB0xBvC4FAkCfcPiAfPGZP_KMhjodl-BTs"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
