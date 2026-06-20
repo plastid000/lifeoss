@@ -34,7 +34,7 @@ android {
 
     defaultConfig {
         applicationId = "com.mrtechbd.lifeos"
-        minSdk = 21
+        minSdk = 23
         
         // 🟢 FIXED: Upgraded to 36 for compatibility
         targetSdk = 36

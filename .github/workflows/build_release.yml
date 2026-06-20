@@ -37,12 +37,7 @@ jobs:
           channel: stable
           cache: true
 
-      - name: Install Android SDK
-        run: |
-          sdkmanager "platforms;android-36"
-          sdkmanager "build-tools;36.0.0"
 
-      # =========================
       # Auto Update pubspec.yaml Version
       # =========================
       - name: Auto Increment pubspec Version
@@ -80,6 +75,22 @@ jobs:
         run: |
           echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > android/app/release-key.jks
 
+
+      - name: Show Android Config
+        run: |
+          cat android/app/build.gradle.kts
+
+
+      - name: Debug Android Config
+        run: |
+          echo "========== build.gradle.kts =========="
+          cat android/app/build.gradle.kts
+          echo "======================================"
+
+      - name: Check SDK Version
+          run: |
+            grep "compileSdk" android/app/build.gradle.kts
+            grep "targetSdk" android/app/build.gradle.kts
 
       # =========================
       # Build Signed APK
