@@ -37,6 +37,11 @@ jobs:
           channel: stable
           cache: true
 
+      - name: Install Android SDK
+        run: |
+          sdkmanager "platforms;android-36"
+          sdkmanager "build-tools;36.0.0"
+
       # =========================
       # Auto Update pubspec.yaml Version
       # =========================
@@ -74,6 +79,7 @@ jobs:
       - name: Decode Keystore
         run: |
           echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > android/app/release-key.jks
+
 
       # =========================
       # Build Signed APK
