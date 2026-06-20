@@ -67,6 +67,12 @@ jobs:
       - name: Install Dependencies
         run: flutter pub get
 
+      - name: Fix Isar Manifest Issue
+        run: |
+        find ~/.pub-cache/hosted -path "*/isar_flutter_libs-*/android/src/main/AndroidManifest.xml" -exec sed -i 's/package="dev.isar.isar_flutter_libs"//g' {} +
+
+    # =========================
+
       # =========================
       # Decode Android Keystore
       # =========================
