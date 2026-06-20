@@ -1,4 +1,4 @@
-name: Build & Release MR Expense APK
+name: Build & Release MemoirOS APK
 
 on:
   push:
@@ -42,15 +42,9 @@ jobs:
       # =========================
       - name: Auto Increment pubspec Version
         run: |
-          # 'v1.0.2' থেকে 'v' সরিয়ে শুধু '1.0.2' নিবে
           APP_VERSION="${GITHUB_REF_NAME#v}"
-          
-          # গিটহাবের অটো জেনারেটেড ইউনিক রান নাম্বার (যেমন: 1, 2, 3...)
           BUILD_NUMBER=$GITHUB_RUN_NUMBER
-          
-          # sed কমান্ড দিয়ে pubspec.yaml এর version লাইনটা রিপ্লেস করবে
           sed -i "s/^version: .*/version: $APP_VERSION+$BUILD_NUMBER/" pubspec.yaml
-          
           echo "✅ Version updated to: $APP_VERSION+$BUILD_NUMBER"
 
       # =========================
@@ -67,11 +61,12 @@ jobs:
       - name: Install Dependencies
         run: flutter pub get
 
+      # =========================
+      # 🟢 FIXED: Patch Isar AndroidManifest for AGP 8+
+      # =========================
       - name: Fix Isar Manifest Issue
         run: |
-        find ~/.pub-cache/hosted -path "*/isar_flutter_libs-*/android/src/main/AndroidManifest.xml" -exec sed -i 's/package="dev.isar.isar_flutter_libs"//g' {} +
-
-    # =========================
+          find ~/.pub-cache/hosted -path "*/isar_flutter_libs-*/android/src/main/AndroidManifest.xml" -exec sed -i 's/package="dev.isar.isar_flutter_libs"//g' {} +
 
       # =========================
       # Decode Android Keystore
@@ -79,15 +74,6 @@ jobs:
       - name: Decode Keystore
         run: |
           echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > android/app/release-key.jks
-
-      # =========================
-      # Debug Signing Config
-      # =========================
-      - name: Debug Secrets
-        env:
-          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-        run: |
-          echo "KEY_ALIAS=$KEY_ALIAS"
 
       # =========================
       # Build Signed APK
@@ -134,19 +120,12 @@ jobs:
 
           PROJECT_ID="memoiros-app"
           VERSION="${GITHUB_REF_NAME#v}"
-
           APK_URL="https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/app-release.apk"
-
-          echo "==============================="
-          echo "Version : $VERSION"
-          echo "APK URL : $APK_URL"
-          echo "==============================="
 
           echo "Generating Access Token..."
           ACCESS_TOKEN=$(gcloud auth print-access-token)
 
           echo "Fetching current Remote Config..."
-
           curl -s \
             -H "Authorization: Bearer $ACCESS_TOKEN" \
             -H "Accept-Encoding: gzip" \
@@ -155,41 +134,14 @@ jobs:
             -o config.json \
             -D headers.txt
 
-          echo "Reading ETag..."
-
           ETAG=$(grep -i '^etag:' headers.txt | awk '{print $2}' | tr -d '\r')
-
-          if [ -z "$ETAG" ]; then
-            echo "ERROR: Could not retrieve ETag"
-            echo "Headers:"
-            cat headers.txt
-            exit 1
-          fi
-
-          echo "ETag Found: $ETAG"
-
-          echo "Creating updated config..."
 
           jq --arg ver "$VERSION" \
              --arg url "$APK_URL" \
-             '
-             .parameters.latest_version = {
-               "defaultValue": {
-                 "value": $ver
-               }
-             } |
-             .parameters.apk_url = {
-               "defaultValue": {
-                 "value": $url
-               }
-             }
-             ' config.json > updated_config.json
-
-          echo "Updated Config Preview:"
-          cat updated_config.json
+             '.parameters.latest_version = {"defaultValue": {"value": $ver}} | .parameters.apk_url = {"defaultValue": {"value": $url}}' \
+             config.json > updated_config.json
 
           echo "Publishing Remote Config..."
-
           HTTP_CODE=$(curl -s \
             -o response.json \
             -w "%{http_code}" \
@@ -200,22 +152,10 @@ jobs:
             -d @updated_config.json \
             "https://firebaseremoteconfig.googleapis.com/v1/projects/$PROJECT_ID/remoteConfig")
 
-          echo "HTTP Status: $HTTP_CODE"
-
-          echo "Response:"
-          cat response.json
-
           if [ "$HTTP_CODE" != "200" ]; then
             echo "Firebase Remote Config update failed!"
+            cat response.json
             exit 1
           fi
 
           echo "Remote Config updated successfully."
-
-      # =========================
-      # Workflow Finished
-      # =========================
-      - name: Success
-        run: |
-          echo "Release Complete!"
-          echo "Version: ${GITHUB_REF_NAME}"
