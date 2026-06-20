@@ -18,7 +18,9 @@ if (keystorePropertiesFile.exists()) {
 
 android {
     namespace = "com.mrtechbd.lifeos"
-    compileSdk = flutter.compileSdkVersion
+    
+    // 🟢 FIXED: Forced compileSdk to 34 to resolve lStar resource error
+    compileSdk = 34 
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
@@ -33,7 +35,9 @@ android {
     defaultConfig {
         applicationId = "com.mrtechbd.lifeos"
         minSdk = flutter.minSdkVersion
-        targetSdk = flutter.targetSdkVersion
+        
+        // 🟢 FIXED: Forced targetSdk to 34 to match compileSdk
+        targetSdk = 34
         versionCode = flutter.versionCode
         versionName = flutter.versionName
 
