@@ -19,8 +19,8 @@ if (keystorePropertiesFile.exists()) {
 android {
     namespace = "com.mrtechbd.lifeos"
     
-    // 🟢 FIXED: Forced compileSdk to 34 to resolve lStar resource error
-    compileSdk = 34 
+    // 🟢 FIXED: Upgraded to 36 because modern plugins require Android 15 APIs
+    compileSdk = 36 
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
@@ -36,8 +36,8 @@ android {
         applicationId = "com.mrtechbd.lifeos"
         minSdk = flutter.minSdkVersion
         
-        // 🟢 FIXED: Forced targetSdk to 34 to match compileSdk
-        targetSdk = 34
+        // 🟢 FIXED: Upgraded to 36 for compatibility
+        targetSdk = 36
         versionCode = flutter.versionCode
         versionName = flutter.versionName
 
@@ -75,7 +75,6 @@ android {
     }
 
     buildTypes {
-        // 🟢 FIXED: Kotlin DSL standard for existing build types
         getByName("release") {
             signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = true
