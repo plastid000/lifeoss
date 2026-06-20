@@ -20,7 +20,7 @@ android {
     namespace = "com.mrtechbd.lifeos"
     
     // 🟢 FIXED: Upgraded to 36 because modern plugins require Android 15 APIs
-    compileSdk = 36 
+    compileSdk = 35
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
@@ -34,10 +34,10 @@ android {
 
     defaultConfig {
         applicationId = "com.mrtechbd.lifeos"
-        minSdk = flutter.minSdkVersion
+        minSdk = 21
         
         // 🟢 FIXED: Upgraded to 36 for compatibility
-        targetSdk = 36
+        targetSdk = 35
         versionCode = flutter.versionCode
         versionName = flutter.versionName
 
