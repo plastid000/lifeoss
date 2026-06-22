@@ -93,16 +93,10 @@ jobs:
       - name: Patch Isar Android Build
         run: |
           ISAR_FILE=$(find ~/.pub-cache -path "*/isar_flutter_libs-*/android/build.gradle" | head -1)
-          
           echo "Found: $ISAR_FILE"
-          
           if [ -f "$ISAR_FILE" ]; then
-            # Force replace existing compileSdkVersion with 36
             sed -i 's/compileSdkVersion [0-9]*/compileSdkVersion 36/g' "$ISAR_FILE"
-            
-            # Add namespace if missing
             grep -q "namespace" "$ISAR_FILE" || sed -i '/android {/a\    namespace "dev.isar.isar_flutter_libs"' "$ISAR_FILE"
-            
             echo "===== Patched Isar ====="
             cat "$ISAR_FILE"
           else
@@ -140,7 +134,6 @@ jobs:
         run: |
           echo "===== compileSdk ====="
           grep -R "compileSdk" android/
-
           echo "===== targetSdk ====="
           grep -R "targetSdk" android/
 
@@ -152,8 +145,7 @@ jobs:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-        run: |
-          flutter build apk --release
+        run: flutter build apk --release
 
       # =========================
       # Upload Release
@@ -190,31 +182,17 @@ jobs:
       # =========================
       # Firebase Remote Config
       # =========================
-      # =========================
-      # Firebase Remote Config
-      # =========================
       - name: Update Firebase Remote Config
         shell: bash
         env:
-          # গিটহাব থেকে সরাসরি ভার্সন নেম নিচ্ছি
           VERSION_NAME: ${{ github.ref_name }}
         run: |
           set -e
-
-          # আপনার প্রজেক্ট আইডি
           PROJECT_ID="memoiros-app"
-          
-          # ভার্সন ক্লিন করা (v1.0.0 থেকে 1.0.0)
           VERSION="${VERSION_NAME#v}"
-          
-          # ডাইনামিক APK URL
           APK_URL="https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/app-release.apk"
-
           echo "Updating Firebase for Version: $VERSION"
-          
           ACCESS_TOKEN=$(gcloud auth print-access-token)
-
-          # কনফিগ ডাউনলোড করা
           curl -s \
             -H "Authorization: Bearer $ACCESS_TOKEN" \
             -H "Accept-Encoding: gzip" \
@@ -222,18 +200,12 @@ jobs:
             "https://firebaseremoteconfig.googleapis.com/v1/projects/$PROJECT_ID/remoteConfig" \
             -o config.json \
             -D headers.txt
-
-          # ETag সংগ্রহ
           ETAG=$(grep -i '^etag:' headers.txt | awk '{print $2}' | tr -d '\r')
-
-          # JQ দিয়ে JSON মডিফাই করা (এই অংশটি আপনার আগের কোডে ভুল ছিল)
           jq --arg ver "$VERSION" \
              --arg url "$APK_URL" \
              '.parameters.latest_version.defaultValue.value = $ver | 
               .parameters.apk_url.defaultValue.value = $url' \
              config.json > updated_config.json
-
-          # আপডেট পুশ করা
           HTTP_CODE=$(curl -s -o response.json -w "%{http_code}" \
             -X PUT \
             -H "Authorization: Bearer $ACCESS_TOKEN" \
@@ -241,11 +213,9 @@ jobs:
             -H "If-Match: $ETAG" \
             -d @updated_config.json \
             "https://firebaseremoteconfig.googleapis.com/v1/projects/$PROJECT_ID/remoteConfig")
-
           if [ "$HTTP_CODE" != "200" ]; then
             echo "Failed to update Firebase! HTTP Code: $HTTP_CODE"
             cat response.json
             exit 1
           fi
-
           echo "Successfully updated Remote Config to version $VERSION"
