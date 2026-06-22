@@ -88,7 +88,7 @@ jobs:
             -exec sed -i 's/package="dev.isar.isar_flutter_libs"//g' {} +
 
       # =========================
-      # Fix Isar Namespace + compileSdk
+      # Fix Isar Namespace + Force compileSdk to 36
       # =========================
       - name: Patch Isar Android Build
         run: |
@@ -97,8 +97,12 @@ jobs:
           echo "Found: $ISAR_FILE"
           
           if [ -f "$ISAR_FILE" ]; then
+            # Force replace existing compileSdkVersion with 36
+            sed -i 's/compileSdkVersion [0-9]*/compileSdkVersion 36/g' "$ISAR_FILE"
+            
+            # Add namespace if missing
             grep -q "namespace" "$ISAR_FILE" || sed -i '/android {/a\    namespace "dev.isar.isar_flutter_libs"' "$ISAR_FILE"
-            grep -q "compileSdkVersion" "$ISAR_FILE" || sed -i '/android {/a\    compileSdkVersion 36' "$ISAR_FILE"
+            
             echo "===== Patched Isar ====="
             cat "$ISAR_FILE"
           else
