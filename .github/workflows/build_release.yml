@@ -5,13 +5,17 @@ on:
     tags:
       - 'v*'
 
+permissions:
+  contents: write
+
+env:
+  ANDROID_COMPILE_SDK: 36
+  ANDROID_TARGET_SDK: 36
+  JAVA_VERSION: 17
+
 jobs:
   build:
     runs-on: ubuntu-latest
-
-    permissions:
-      contents: write
-
     steps:
       # =========================
       # Checkout
@@ -20,7 +24,7 @@ jobs:
         uses: actions/checkout@v4
 
       # =========================
-      # Java Setup
+      # Java 17
       # =========================
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -29,7 +33,20 @@ jobs:
           java-version: '17'
 
       # =========================
-      # Flutter Setup
+      # Android SDK
+      # =========================
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK 36
+        run: |
+          yes | sdkmanager --licenses
+          sdkmanager "platform-tools"
+          sdkmanager "platforms;android-36"
+          sdkmanager "build-tools;36.0.0"
+
+      # =========================
+      # Flutter
       # =========================
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
@@ -37,65 +54,96 @@ jobs:
           channel: stable
           cache: true
 
-
-      # Auto Update pubspec.yaml Version
       # =========================
-      - name: Auto Increment pubspec Version
+      # Debug Environment
+      # =========================
+      - name: Environment Info
+        run: |
+          flutter doctor -v
+          java -version
+          sdkmanager --list | grep "android-36" || true
+
+      # =========================
+      # Update Version
+      # =========================
+      - name: Update Version
         run: |
           APP_VERSION="${GITHUB_REF_NAME#v}"
           BUILD_NUMBER=$GITHUB_RUN_NUMBER
           sed -i "s/^version: .*/version: $APP_VERSION+$BUILD_NUMBER/" pubspec.yaml
-          echo "✅ Version updated to: $APP_VERSION+$BUILD_NUMBER"
 
       # =========================
-      # Install jq
+      # Pub Get
       # =========================
-      - name: Install jq
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y jq
-
-      # =========================
-      # Flutter Dependencies
-      # =========================
-      - name: Install Dependencies
+      - name: Flutter Pub Get
         run: flutter pub get
 
       # =========================
-      # 🟢 FIXED: Patch Isar AndroidManifest for AGP 8+
+      # Fix Isar Manifest
       # =========================
-      - name: Fix Isar Manifest Issue
+      - name: Patch Isar Manifest
         run: |
-          find ~/.pub-cache/hosted -path "*/isar_flutter_libs-*/android/src/main/AndroidManifest.xml" -exec sed -i 's/package="dev.isar.isar_flutter_libs"//g' {} +
+          find ~/.pub-cache \
+            -path "*/isar_flutter_libs-*/android/src/main/AndroidManifest.xml" \
+            -exec sed -i 's/package="dev.isar.isar_flutter_libs"//g' {} +
 
       # =========================
-      # Decode Android Keystore
+      # Fix Isar Namespace + compileSdk
+      # =========================
+      - name: Patch Isar Android Build
+        run: |
+          ISAR_FILE=$(find ~/.pub-cache -path "*/isar_flutter_libs-*/android/build.gradle" | head -1)
+          
+          echo "Found: $ISAR_FILE"
+          
+          if [ -f "$ISAR_FILE" ]; then
+            grep -q "namespace" "$ISAR_FILE" || sed -i '/android {/a\    namespace "dev.isar.isar_flutter_libs"' "$ISAR_FILE"
+            grep -q "compileSdkVersion" "$ISAR_FILE" || sed -i '/android {/a\    compileSdkVersion 36' "$ISAR_FILE"
+            echo "===== Patched Isar ====="
+            cat "$ISAR_FILE"
+          else
+            echo "Isar build.gradle not found!"
+          fi
+
+      # =========================
+      # Verify Isar
+      # =========================
+      - name: Verify Isar Config
+        run: |
+          find ~/.pub-cache \
+            -path "*/isar_flutter_libs-*/android/build.gradle" \
+            -exec cat {} \;
+
+      # =========================
+      # Decode Keystore
       # =========================
       - name: Decode Keystore
         run: |
           echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > android/app/release-key.jks
 
-
-      - name: Show Android Config
+      # =========================
+      # Clean
+      # =========================
+      - name: Clean Project
         run: |
-          cat android/app/build.gradle.kts
-
-
-      - name: Debug Android Config
-        run: |
-          echo "========== build.gradle.kts =========="
-          cat android/app/build.gradle.kts
-          echo "======================================"
-
-      - name: Check SDK Version
-          run: |
-            grep "compileSdk" android/app/build.gradle.kts
-            grep "targetSdk" android/app/build.gradle.kts
+          flutter clean
+          flutter pub get
 
       # =========================
-      # Build Signed APK
+      # Verify Android SDK
       # =========================
-      - name: Build APK (Release)
+      - name: Verify Android Config
+        run: |
+          echo "===== compileSdk ====="
+          grep -R "compileSdk" android/
+
+          echo "===== targetSdk ====="
+          grep -R "targetSdk" android/
+
+      # =========================
+      # Build APK
+      # =========================
+      - name: Build Release APK
         env:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
@@ -104,9 +152,9 @@ jobs:
           flutter build apk --release
 
       # =========================
-      # Upload GitHub Release
+      # Upload Release
       # =========================
-      - name: Upload APK to GitHub Release
+      - name: Upload APK
         uses: softprops/action-gh-release@v2
         with:
           files: build/app/outputs/flutter-apk/app-release.apk
@@ -117,15 +165,23 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # =========================
-      # Google Authentication
+      # Google Auth
       # =========================
-      - name: Authenticate to Google
+      - name: Authenticate Google
         uses: google-github-actions/auth@v2
         with:
           credentials_json: '${{ secrets.FIREBASE_CREDENTIALS }}'
 
-      - name: Setup Google Cloud SDK
+      - name: Setup GCloud
         uses: google-github-actions/setup-gcloud@v2
+
+      # =========================
+      # Install jq
+      # =========================
+      - name: Install jq
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq
 
       # =========================
       # Firebase Remote Config
@@ -139,10 +195,8 @@ jobs:
           VERSION="${GITHUB_REF_NAME#v}"
           APK_URL="https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/app-release.apk"
 
-          echo "Generating Access Token..."
           ACCESS_TOKEN=$(gcloud auth print-access-token)
 
-          echo "Fetching current Remote Config..."
           curl -s \
             -H "Authorization: Bearer $ACCESS_TOKEN" \
             -H "Accept-Encoding: gzip" \
@@ -155,24 +209,13 @@ jobs:
 
           jq --arg ver "$VERSION" \
              --arg url "$APK_URL" \
-             '.parameters.latest_version = {"defaultValue": {"value": $ver}} | .parameters.apk_url = {"defaultValue": {"value": $url}}' \
+             '.parameters.latest_version = {"defaultValue":{"value":$ver}} |
+              .parameters.apk_url = {"defaultValue":{"value":$url}}' \
              config.json > updated_config.json
 
-          echo "Publishing Remote Config..."
-          HTTP_CODE=$(curl -s \
-            -o response.json \
-            -w "%{http_code}" \
-            -X PUT \
+          curl -X PUT \
             -H "Authorization: Bearer $ACCESS_TOKEN" \
             -H "Content-Type: application/json; charset=UTF-8" \
             -H "If-Match: $ETAG" \
             -d @updated_config.json \
-            "https://firebaseremoteconfig.googleapis.com/v1/projects/$PROJECT_ID/remoteConfig")
-
-          if [ "$HTTP_CODE" != "200" ]; then
-            echo "Firebase Remote Config update failed!"
-            cat response.json
-            exit 1
-          fi
-
-          echo "Remote Config updated successfully."
+            "https://firebaseremoteconfig.googleapis.com/v1/projects/$PROJECT_ID/remoteConfig"
