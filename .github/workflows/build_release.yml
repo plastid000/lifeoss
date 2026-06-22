@@ -190,19 +190,31 @@ jobs:
       # =========================
       # Firebase Remote Config
       # =========================
+      # =========================
+      # Firebase Remote Config
+      # =========================
       - name: Update Firebase Remote Config
         shell: bash
+        env:
+          # গিটহাব থেকে সরাসরি ভার্সন নেম নিচ্ছি
+          VERSION_NAME: ${{ github.ref_name }}
         run: |
           set -e
 
+          # আপনার প্রজেক্ট আইডি
           PROJECT_ID="memoiros-app"
-          VERSION="${GITHUB_REF_NAME#v}"
+          
+          # ভার্সন ক্লিন করা (v1.0.0 থেকে 1.0.0)
+          VERSION="${VERSION_NAME#v}"
+          
+          # ডাইনামিক APK URL
           APK_URL="https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/app-release.apk"
 
-          echo "Generating Access Token..."
+          echo "Updating Firebase for Version: $VERSION"
+          
           ACCESS_TOKEN=$(gcloud auth print-access-token)
 
-          echo "Fetching current Remote Config..."
+          # কনফিগ ডাউনলোড করা
           curl -s \
             -H "Authorization: Bearer $ACCESS_TOKEN" \
             -H "Accept-Encoding: gzip" \
@@ -211,24 +223,18 @@ jobs:
             -o config.json \
             -D headers.txt
 
+          # ETag সংগ্রহ
           ETAG=$(grep -i '^etag:' headers.txt | awk '{print $2}' | tr -d '\r')
 
-          if [ -z "$ETAG" ]; then
-            echo "ERROR: Could not retrieve ETag"
-            exit 1
-          fi
-
-          echo "Creating updated config..."
+          # JQ দিয়ে JSON মডিফাই করা (এই অংশটি আপনার আগের কোডে ভুল ছিল)
           jq --arg ver "$VERSION" \
              --arg url "$APK_URL" \
-             '.parameters.latest_version = {"defaultValue":{"value":$ver}} |
-              .parameters.apk_url = {"defaultValue":{"value":$url}}' \
+             '.parameters.latest_version.defaultValue.value = $ver | 
+              .parameters.apk_url.defaultValue.value = $url' \
              config.json > updated_config.json
 
-          echo "Publishing Remote Config..."
-          HTTP_CODE=$(curl -s \
-            -o response.json \
-            -w "%{http_code}" \
+          # আপডেট পুশ করা
+          HTTP_CODE=$(curl -s -o response.json -w "%{http_code}" \
             -X PUT \
             -H "Authorization: Bearer $ACCESS_TOKEN" \
             -H "Content-Type: application/json; charset=UTF-8" \
@@ -237,9 +243,9 @@ jobs:
             "https://firebaseremoteconfig.googleapis.com/v1/projects/$PROJECT_ID/remoteConfig")
 
           if [ "$HTTP_CODE" != "200" ]; then
-            echo "Firebase Remote Config update failed with HTTP $HTTP_CODE"
+            echo "Failed to update Firebase! HTTP Code: $HTTP_CODE"
             cat response.json
             exit 1
           fi
 
-          echo "Remote Config updated successfully."
+          echo "Successfully updated Remote Config to version $VERSION"
