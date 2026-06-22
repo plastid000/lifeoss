@@ -188,11 +188,16 @@ jobs:
           VERSION_NAME: ${{ github.ref_name }}
         run: |
           set -e
-          PROJECT_ID="memoiros-app"
+          
+          # IMPORTANT: Verify this is your exact GCP Project ID!
+          PROJECT_ID="memoiros-app" 
           VERSION="${VERSION_NAME#v}"
           APK_URL="https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/app-release.apk"
+          
           echo "Updating Firebase for Version: $VERSION"
           ACCESS_TOKEN=$(gcloud auth print-access-token)
+          
+          echo "Fetching current config..."
           curl -s \
             -H "Authorization: Bearer $ACCESS_TOKEN" \
             -H "Accept-Encoding: gzip" \
@@ -200,12 +205,28 @@ jobs:
             "https://firebaseremoteconfig.googleapis.com/v1/projects/$PROJECT_ID/remoteConfig" \
             -o config.json \
             -D headers.txt
-          ETAG=$(grep -i '^etag:' headers.txt | awk '{print $2}' | tr -d '\r')
+            
+          # Safely extract ETAG without breaking 'set -e'
+          ETAG=$(grep -i '^etag:' headers.txt | awk '{print $2}' | tr -d '\r' || true)
+          
+          if [ -z "$ETAG" ]; then
+            echo "Error: ETag not found! The Firebase API likely returned an error."
+            echo "--- Headers ---"
+            cat headers.txt
+            echo "--- Response Body ---"
+            cat config.json
+            exit 1
+          fi
+          
+          echo "ETag found: $ETAG"
+          
           jq --arg ver "$VERSION" \
              --arg url "$APK_URL" \
              '.parameters.latest_version.defaultValue.value = $ver | 
               .parameters.apk_url.defaultValue.value = $url' \
              config.json > updated_config.json
+             
+          echo "Uploading updated config..."
           HTTP_CODE=$(curl -s -o response.json -w "%{http_code}" \
             -X PUT \
             -H "Authorization: Bearer $ACCESS_TOKEN" \
@@ -213,9 +234,11 @@ jobs:
             -H "If-Match: $ETAG" \
             -d @updated_config.json \
             "https://firebaseremoteconfig.googleapis.com/v1/projects/$PROJECT_ID/remoteConfig")
+            
           if [ "$HTTP_CODE" != "200" ]; then
             echo "Failed to update Firebase! HTTP Code: $HTTP_CODE"
             cat response.json
             exit 1
           fi
+          
           echo "Successfully updated Remote Config to version $VERSION"
